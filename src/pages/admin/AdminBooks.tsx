@@ -24,7 +24,12 @@ import {
   searchBooks,
   clearError,
 } from "../../store/slices/bookSlice";
-import { Book, AddBookRequest, UpdateBookRequest } from "../../services/api";
+import {
+  Book,
+  AddBookRequest,
+  UpdateBookRequest,
+  bookApi,
+} from "../../services/api";
 
 const AdminBooks: React.FC = () => {
   const dispatch = useAppDispatch();
@@ -52,7 +57,13 @@ const AdminBooks: React.FC = () => {
   });
   const [bookFile, setBookFile] = useState<File | null>(null);
   const [coverImage, setCoverImage] = useState<File | null>(null);
-  const [coverImagePreview, setCoverImagePreview] = useState<string | null>(null);
+  const [coverImagePreview, setCoverImagePreview] = useState<string | null>(
+    null
+  );
+  const [coverImages, setCoverImages] = useState<Record<number, string>>({});
+  const [loadingCovers, setLoadingCovers] = useState<Record<number, boolean>>(
+    {}
+  );
   const modalRef = useRef<HTMLDivElement>(null);
 
   // Load books on mount
@@ -76,6 +87,36 @@ const AdminBooks: React.FC = () => {
 
     return () => clearTimeout(timer);
   }, [searchTerm, dispatch]);
+
+  // Load cover images
+  useEffect(() => {
+    const loadCoverImages = async () => {
+      for (const book of books) {
+        if (!coverImages[book.id] && !loadingCovers[book.id]) {
+          setLoadingCovers((prev) => ({ ...prev, [book.id]: true }));
+          try {
+            const blob = await bookApi.getBookCover(book.id);
+            const url = URL.createObjectURL(blob);
+            setCoverImages((prev) => ({ ...prev, [book.id]: url }));
+          } catch (error) {
+            console.error(`Failed to load cover for book ${book.id}:`, error);
+          } finally {
+            setLoadingCovers((prev) => ({ ...prev, [book.id]: false }));
+          }
+        }
+      }
+    };
+
+    if (books.length > 0) {
+      loadCoverImages();
+    }
+
+    // Cleanup URLs on unmount
+    return () => {
+      Object.values(coverImages).forEach((url) => URL.revokeObjectURL(url));
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [books]);
 
   // Close modal when clicking outside
   useEffect(() => {
@@ -330,10 +371,12 @@ const AdminBooks: React.FC = () => {
             >
               <Card className="p-6 hover:shadow-xl transition-shadow">
                 {/* Cover Image */}
-                <div className="w-full h-48 rounded-xl bg-gray-100 mb-4 overflow-hidden flex items-center justify-center">
-                  {book.cover_image ? (
+                <div className="w-full h-48 rounded-xl bg-gray-100 mb-4 overflow-hidden flex items-center justify-center relative">
+                  {loadingCovers[book.id] ? (
+                    <Loader2 className="animate-spin text-primary" size={32} />
+                  ) : coverImages[book.id] ? (
                     <img
-                      src={book.cover_image}
+                      src={coverImages[book.id]}
                       alt={book.title}
                       className="w-full h-full object-cover"
                     />
@@ -491,20 +534,16 @@ const AdminBooks: React.FC = () => {
                   <Input
                     label="السعر"
                     type="number"
-                    step="0.01"
                     value={formData.price}
                     onChange={(e) =>
                       setFormData({ ...formData, price: e.target.value })
                     }
-                    placeholder="0.00"
+                    placeholder="0"
                     required
                   />
                   <Input
                     label="التقييم"
                     type="number"
-                    step="0.1"
-                    min="0"
-                    max="5"
                     value={formData.rate}
                     onChange={(e) =>
                       setFormData({ ...formData, rate: e.target.value })
@@ -556,7 +595,8 @@ const AdminBooks: React.FC = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-tajawal font-medium text-gray-700 mb-2">
-                      ملف الكتاب (PDF) {!editingBook && <span className="text-red-500">*</span>}
+                      ملف الكتاب (PDF){" "}
+                      {!editingBook && <span className="text-red-500">*</span>}
                     </label>
                     <div className="relative">
                       <input
@@ -581,7 +621,8 @@ const AdminBooks: React.FC = () => {
 
                   <div>
                     <label className="block text-sm font-tajawal font-medium text-gray-700 mb-2">
-                      صورة الغلاف {!editingBook && <span className="text-red-500">*</span>}
+                      صورة الغلاف{" "}
+                      {!editingBook && <span className="text-red-500">*</span>}
                     </label>
                     <div className="relative">
                       <input
@@ -633,12 +674,10 @@ const AdminBooks: React.FC = () => {
                         ) : (
                           <Edit size={16} />
                         )
+                      ) : addBookLoading ? (
+                        <Loader2 className="animate-spin" size={16} />
                       ) : (
-                        addBookLoading ? (
-                          <Loader2 className="animate-spin" size={16} />
-                        ) : (
-                          <Plus size={16} />
-                        )
+                        <Plus size={16} />
                       )
                     }
                     className="flex-1"

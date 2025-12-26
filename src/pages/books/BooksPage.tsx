@@ -149,8 +149,8 @@ const BooksPage: React.FC = () => {
                       <BookOpen className="text-primary/40" size={64} />
                     </div>
                   )}
-                  <div className="absolute top-4 right-4 bg-white/20 backdrop-blur-sm rounded-full px-3 py-1">
-                    <span className="text-white font-reem text-sm">
+                  <div className="absolute top-4 right-4 bg-gradient-to-r from-primary to-secondary text-white rounded-full px-4 py-2 shadow-lg backdrop-blur-sm">
+                    <span className="font-reem font-semibold text-sm">
                       {book.category}
                     </span>
                   </div>

@@ -70,6 +70,7 @@ export interface UserProfile {
   last_name: string;
   image: string | null;
   address?: string;
+  phone?: string;
   payment_info?: string;
 }
 
@@ -78,6 +79,7 @@ export interface UpdateProfileData {
   first_name?: string;
   last_name?: string;
   address?: string;
+  phone?: string;
   payment_info?: string;
 }
 
@@ -97,6 +99,8 @@ export interface AdminUser {
   last_name: string;
   image: string | null;
   is_admin: boolean;
+  address?: string;
+  phone?: string;
 }
 
 export interface AddAdminData {
@@ -176,6 +180,19 @@ export interface ListCustomizationsResponse {
   customizations: BookCustomization[];
 }
 
+// New format for customizations list API (simplified version)
+export interface CustomizationSummary {
+  id: number;
+  book_id: number;
+  book_title: string;
+  user_id: number;
+  child_name: string;
+  child_age: string;
+  created_at: string;
+  child_image_url: string;
+  custom_book_url: string;
+}
+
 export interface GetCustomizationResponse {
   success: boolean;
   customization: BookCustomization;
@@ -225,7 +242,8 @@ export interface SearchBooksRequest {
 
 // Purchase Request Types
 export interface PurchaseRequestData {
-  book_id: number;
+  book_id?: number | null;
+  customization_id?: number | null;
 }
 
 export interface CreatePurchaseRequestResponse {
@@ -254,14 +272,23 @@ export interface ProcessRequestResponse {
 export interface LibraryItem {
   id: number;
   user: number;
-  book: Book;
-  custom_book: string | null;
+  book: Book | null;
+  custom_book: number | null;
   added_at: string;
 }
+
+// Token refresh state to prevent multiple simultaneous refresh requests
+let isRefreshing = false;
+let refreshPromise: Promise<string | null> | null = null;
 
 // Helper function to get auth token from localStorage
 const getAuthToken = (): string | null => {
   return localStorage.getItem("accessToken");
+};
+
+// Helper function to get refresh token from localStorage
+const getRefreshToken = (): string | null => {
+  return localStorage.getItem("refreshToken");
 };
 
 // Helper function to set auth tokens
@@ -276,10 +303,74 @@ export const clearAuthTokens = (): void => {
   localStorage.removeItem("refreshToken");
 };
 
-// API request helper
+// Refresh token interface
+export interface RefreshTokenResponse {
+  access: string;
+  refresh?: string;
+}
+
+// Function to refresh access token using refresh token
+const refreshAccessToken = async (): Promise<string | null> => {
+  // If already refreshing, return the existing promise
+  if (isRefreshing && refreshPromise) {
+    return refreshPromise;
+  }
+
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) {
+    clearAuthTokens();
+    return null;
+  }
+
+  isRefreshing = true;
+  refreshPromise = (async () => {
+    try {
+      const response = await fetch(`${BASE_URL}/user/token/refresh/`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ refresh: refreshToken }),
+      });
+
+      if (!response.ok) {
+        // Refresh token is invalid or expired
+        clearAuthTokens();
+        // Dispatch logout event to notify app
+        window.dispatchEvent(new Event("auth:logout"));
+        return null;
+      }
+
+      const data: RefreshTokenResponse = await response.json();
+
+      // Update tokens in localStorage
+      if (data.refresh) {
+        setAuthTokens(data.access, data.refresh);
+      } else {
+        // If new refresh token not provided, keep the old one
+        localStorage.setItem("accessToken", data.access);
+      }
+
+      return data.access;
+    } catch (error) {
+      console.error("Token refresh failed:", error);
+      clearAuthTokens();
+      window.dispatchEvent(new Event("auth:logout"));
+      return null;
+    } finally {
+      isRefreshing = false;
+      refreshPromise = null;
+    }
+  })();
+
+  return refreshPromise;
+};
+
+// API request helper with automatic token refresh
 const apiRequest = async <T>(
   endpoint: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  retryCount = 0
 ): Promise<T> => {
   const token = getAuthToken();
   const headers: HeadersInit = {
@@ -296,6 +387,43 @@ const apiRequest = async <T>(
     ...options,
     headers,
   });
+
+  // Handle 401 Unauthorized - token expired
+  if (response.status === 401 && retryCount === 0) {
+    // Try to refresh the token
+    const newToken = await refreshAccessToken();
+
+    if (newToken) {
+      // Retry the request with new token
+      (headers as Record<string, string>)[
+        "Authorization"
+      ] = `Bearer ${newToken}`;
+      const retryResponse = await fetch(`${BASE_URL}${endpoint}`, {
+        ...options,
+        headers,
+      });
+
+      if (!retryResponse.ok) {
+        let errorMessage = `HTTP error! status: ${retryResponse.status}`;
+        try {
+          const errorData = await retryResponse.json();
+          errorMessage =
+            errorData.message ||
+            errorData.error ||
+            errorData.detail ||
+            errorMessage;
+        } catch {
+          errorMessage = retryResponse.statusText || errorMessage;
+        }
+        throw new Error(errorMessage);
+      }
+
+      return retryResponse.json();
+    } else {
+      // Refresh failed, redirect to login
+      throw new Error("Session expired. Please login again.");
+    }
+  }
 
   if (!response.ok) {
     let errorMessage = `HTTP error! status: ${response.status}`;
@@ -316,11 +444,62 @@ const apiRequest = async <T>(
   return response.json();
 };
 
-// API request helper for FormData (for file uploads)
+// Helper function for blob requests with token refresh
+const fetchBlobWithRefresh = async (
+  endpoint: string,
+  retryCount = 0
+): Promise<Blob> => {
+  const token = getAuthToken();
+  const headers: HeadersInit = {};
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(`${BASE_URL}${endpoint}`, {
+    method: "GET",
+    headers,
+  });
+
+  // Handle 401 Unauthorized - token expired
+  if (response.status === 401 && retryCount === 0) {
+    // Try to refresh the token
+    const newToken = await refreshAccessToken();
+
+    if (newToken) {
+      // Retry the request with new token
+      headers["Authorization"] = `Bearer ${newToken}`;
+      const retryResponse = await fetch(`${BASE_URL}${endpoint}`, {
+        method: "GET",
+        headers,
+      });
+
+      if (!retryResponse.ok) {
+        throw new Error(
+          `Failed to fetch resource: ${retryResponse.statusText}`
+        );
+      }
+
+      return retryResponse.blob();
+    } else {
+      // Refresh failed
+      throw new Error("Session expired. Please login again.");
+    }
+  }
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch resource: ${response.statusText}`);
+  }
+
+  return response.blob();
+};
+
+// API request helper for FormData (for file uploads) with automatic token refresh
+// Note: FormData cannot be reused, so we need to pass it as-is and handle retry differently
 const apiRequestFormData = async <T>(
   endpoint: string,
   formData: FormData,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  retryCount = 0
 ): Promise<T> => {
   const token = getAuthToken();
   const headers: HeadersInit = {
@@ -337,6 +516,17 @@ const apiRequestFormData = async <T>(
     headers,
     body: formData,
   });
+
+  // Handle 401 Unauthorized - token expired
+  // Note: FormData body is consumed, so we can't retry with the same FormData
+  // This is acceptable because FormData requests are typically POST/PUT operations
+  // that shouldn't be retried automatically anyway
+  if (response.status === 401 && retryCount === 0) {
+    // Try to refresh the token for future requests
+    await refreshAccessToken();
+    // Don't retry FormData requests - let the caller handle the error
+    throw new Error("Session expired. Please login again.");
+  }
 
   if (!response.ok) {
     let errorMessage = `HTTP error! status: ${response.status}`;
@@ -584,7 +774,7 @@ export const bookApi = {
     );
   },
 
-  // List customizations
+  // List customizations (old format)
   listCustomizations: async (): Promise<ListCustomizationsResponse> => {
     return apiRequest<ListCustomizationsResponse>(
       "/books/listcustomizations/",
@@ -592,6 +782,13 @@ export const bookApi = {
         method: "GET",
       }
     );
+  },
+
+  // List customizations (new simplified format)
+  listCustomizationsSummary: async (): Promise<CustomizationSummary[]> => {
+    return apiRequest<CustomizationSummary[]>("/books/listcustomizations/", {
+      method: "GET",
+    });
   },
 
   // Get customization
@@ -618,90 +815,22 @@ export const bookApi = {
 
   // Get custom book file
   getCustomBookFile: async (id: number): Promise<Blob> => {
-    const token = getAuthToken();
-    const headers: HeadersInit = {};
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-    }
-
-    const response = await fetch(
-      `${BASE_URL}/books/customizations/${id}/file/`,
-      {
-        method: "GET",
-        headers,
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error(
-        `Failed to fetch custom book file: ${response.statusText}`
-      );
-    }
-
-    return response.blob();
+    return fetchBlobWithRefresh(`/books/customizations/${id}/file/`);
   },
 
   // Get child image
   getChildImage: async (id: number): Promise<Blob> => {
-    const token = getAuthToken();
-    const headers: HeadersInit = {};
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-    }
-
-    const response = await fetch(
-      `${BASE_URL}/books/customizations/${id}/child-image/`,
-      {
-        method: "GET",
-        headers,
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch child image: ${response.statusText}`);
-    }
-
-    return response.blob();
+    return fetchBlobWithRefresh(`/books/customizations/${id}/child-image/`);
   },
 
   // Get book file
   getBookFile: async (id: number): Promise<Blob> => {
-    const token = getAuthToken();
-    const headers: HeadersInit = {};
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-    }
-
-    const response = await fetch(`${BASE_URL}/books/bookfile/${id}/`, {
-      method: "GET",
-      headers,
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch book file: ${response.statusText}`);
-    }
-
-    return response.blob();
+    return fetchBlobWithRefresh(`/books/bookfile/${id}/`);
   },
 
   // Get book cover
   getBookCover: async (id: number): Promise<Blob> => {
-    const token = getAuthToken();
-    const headers: HeadersInit = {};
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-    }
-
-    const response = await fetch(`${BASE_URL}/books/cover/${id}/`, {
-      method: "GET",
-      headers,
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch book cover: ${response.statusText}`);
-    }
-
-    return response.blob();
+    return fetchBlobWithRefresh(`/books/cover/${id}/`);
   },
 };
 

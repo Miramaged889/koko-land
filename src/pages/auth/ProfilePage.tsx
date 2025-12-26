@@ -12,11 +12,11 @@ import {
   Eye,
   EyeOff,
   MapPin,
-  CreditCard,
   AlertCircle,
   Loader2,
   Shield,
   BookOpen,
+  Phone,
 } from "lucide-react";
 import Card from "../../components/ui/Card";
 import Input from "../../components/ui/Input";
@@ -34,6 +34,7 @@ import {
   clearError as clearPurchaseError,
 } from "../../store/slices/purchaseSlice";
 import LibraryCard from "../../components/cards/LibraryCard";
+import { bookApi, CustomizationSummary } from "../../services/api";
 
 type TabType = "profile" | "password" | "customizations" | "delete";
 
@@ -68,7 +69,7 @@ const ProfilePage: React.FC = () => {
     last_name: "",
     email: "",
     address: "",
-    payment_info: "",
+    phone: "",
   });
 
   const [passwordForm, setPasswordForm] = useState({
@@ -82,6 +83,10 @@ const ProfilePage: React.FC = () => {
     new_password: "",
     confirm_password: "",
   });
+
+  const [customizationsMap, setCustomizationsMap] = useState<
+    Record<number, CustomizationSummary>
+  >({});
 
   // Redirect if not authenticated
   useEffect(() => {
@@ -97,10 +102,27 @@ const ProfilePage: React.FC = () => {
     }
   }, [dispatch, isAuthenticated]);
 
-  // Fetch library when customizations tab is active
+  // Fetch library and customizations when customizations tab is active
   useEffect(() => {
     if (isAuthenticated && activeTab === "customizations") {
       dispatch(getUserLibrary());
+
+      // Fetch customizations to match with custom_book IDs
+      const fetchCustomizations = async () => {
+        try {
+          const customizations = await bookApi.listCustomizationsSummary();
+          // Create a map of customization ID to customization data
+          const map: Record<number, CustomizationSummary> = {};
+          customizations.forEach((custom) => {
+            map[custom.id] = custom;
+          });
+          setCustomizationsMap(map);
+        } catch (error) {
+          console.error("Failed to load customizations:", error);
+        }
+      };
+
+      fetchCustomizations();
     }
   }, [dispatch, isAuthenticated, activeTab]);
 
@@ -112,7 +134,7 @@ const ProfilePage: React.FC = () => {
         last_name: profile.last_name ?? "",
         email: profile.email ?? "",
         address: profile.address ?? "",
-        payment_info: profile.payment_info ?? "",
+        phone: profile.phone ?? "",
       });
     }
   }, [profile]);
@@ -142,8 +164,8 @@ const ProfilePage: React.FC = () => {
       if (profileForm.address?.trim()) {
         cleanedData.address = profileForm.address.trim();
       }
-      if (profileForm.payment_info?.trim()) {
-        cleanedData.payment_info = profileForm.payment_info.trim();
+      if (profileForm.phone?.trim()) {
+        cleanedData.phone = profileForm.phone.trim();
       }
 
       await dispatch(updateProfile(cleanedData)).unwrap();
@@ -408,12 +430,13 @@ const ProfilePage: React.FC = () => {
                 />
 
                 <Input
-                  label="معلومات الدفع"
-                  name="payment_info"
-                  value={profileForm.payment_info || ""}
+                  label="رقم الهاتف"
+                  name="phone"
+                  type="tel"
+                  value={profileForm.phone || ""}
                   onChange={handleProfileChange}
                   disabled={!isEditing}
-                  icon={<CreditCard size={20} />}
+                  icon={<Phone size={20} />}
                 />
 
                 {isEditing && (
@@ -437,7 +460,7 @@ const ProfilePage: React.FC = () => {
                             last_name: profile.last_name || "",
                             email: profile.email || "",
                             address: profile.address || "",
-                            payment_info: profile.payment_info || "",
+                            phone: profile.phone || "",
                           });
                         }
                         dispatch(clearError());
@@ -665,9 +688,21 @@ const ProfilePage: React.FC = () => {
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {library.map((item) => (
-                    <LibraryCard key={item.id} libraryItem={item} />
-                  ))}
+                  {library
+                    .filter(
+                      (item) => item.book !== null || item.custom_book !== null
+                    )
+                    .map((item) => (
+                      <LibraryCard
+                        key={item.id}
+                        libraryItem={item}
+                        customizationSummary={
+                          item.custom_book
+                            ? customizationsMap[item.custom_book] || undefined
+                            : undefined
+                        }
+                      />
+                    ))}
                 </div>
               )}
             </Card>

@@ -1,4 +1,7 @@
-import { Routes, Route } from "react-router-dom";
+import { useEffect } from "react";
+import { Routes, Route, useNavigate } from "react-router-dom";
+import { useAppDispatch } from "./store/hooks";
+import { logout } from "./store/slices/authSlice";
 import { AdminLayout, PublicLayout } from "./components/layout";
 import { MyLibraryPage, PrivacyPage, TermsPage } from "./pages";
 import { HomePage, AboutPage, ContactPage } from "./pages/main";
@@ -13,6 +16,23 @@ import {
 } from "./pages/admin";
 
 function App() {
+  const dispatch = useAppDispatch();
+  const navigate = useNavigate();
+
+  // Listen for auth logout events (triggered when token refresh fails)
+  useEffect(() => {
+    const handleAuthLogout = () => {
+      dispatch(logout());
+      navigate("/login");
+    };
+
+    window.addEventListener("auth:logout", handleAuthLogout);
+
+    return () => {
+      window.removeEventListener("auth:logout", handleAuthLogout);
+    };
+  }, [dispatch, navigate]);
+
   return (
     <Routes>
       {/* Auth Routes (without Header/Footer) */}

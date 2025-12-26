@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import { listBooks, customizeBook } from "../../store/slices/bookSlice";
+import { createPurchaseRequest } from "../../store/slices/purchaseSlice";
 
 const CreateStoryPage: React.FC = () => {
   const navigate = useNavigate();
@@ -20,6 +21,7 @@ const CreateStoryPage: React.FC = () => {
   const { books, loading, customizeBookLoading, error } = useAppSelector(
     (state) => state.books
   );
+  const { createRequestLoading } = useAppSelector((state) => state.purchase);
 
   const [childName, setChildName] = useState("");
   const [selectedAge, setSelectedAge] = useState("");
@@ -29,6 +31,7 @@ const CreateStoryPage: React.FC = () => {
     null
   );
   const [step, setStep] = useState(1);
+  const [customizationId, setCustomizationId] = useState<number | null>(null);
 
   // Load books on mount
   useEffect(() => {
@@ -48,7 +51,7 @@ const CreateStoryPage: React.FC = () => {
   };
 
   const handleNext = () => {
-    if (step < 3) {
+    if (step < 4) {
       setStep(step + 1);
     }
   };
@@ -71,7 +74,7 @@ const CreateStoryPage: React.FC = () => {
     }
 
     try {
-      await dispatch(
+      const customizeResult = await dispatch(
         customizeBook({
           book: selectedBookId,
           child_name: childName.trim(),
@@ -80,11 +83,38 @@ const CreateStoryPage: React.FC = () => {
         })
       ).unwrap();
 
-      alert("تم تخصيص الكتاب بنجاح!");
-      // Navigate to profile or library to see the customized book
-      navigate("/profile");
+      // Save customization_id for purchase request
+      if (customizeResult.customization_id) {
+        setCustomizationId(customizeResult.customization_id);
+        // Move to step 4 (purchase request)
+        setStep(4);
+      } else {
+        alert("تم تخصيص الكتاب بنجاح!");
+        navigate("/profile");
+      }
     } catch (err: unknown) {
       alert((err as Error).message || "فشل تخصيص الكتاب");
+    }
+  };
+
+  const handleCreatePurchaseRequest = async () => {
+    if (!customizationId) {
+      alert("خطأ: لم يتم إنشاء التخصيص");
+      return;
+    }
+
+    try {
+      await dispatch(
+        createPurchaseRequest({
+          book_id: null,
+          customization_id: customizationId,
+        })
+      ).unwrap();
+
+      alert("تم إرسال طلب الشراء بنجاح! سيتم مراجعته من قبل الإدارة.");
+      navigate("/profile");
+    } catch (err: unknown) {
+      alert((err as Error).message || "فشل إرسال طلب الشراء");
     }
   };
 
@@ -96,6 +126,8 @@ const CreateStoryPage: React.FC = () => {
         return childImageFile !== null;
       case 3:
         return selectedBookId !== null;
+      case 4:
+        return customizationId !== null;
       default:
         return false;
     }
@@ -126,8 +158,8 @@ const CreateStoryPage: React.FC = () => {
           animate={{ opacity: 1, y: 0 }}
           className="mb-12"
         >
-          <div className="flex items-center justify-center space-x-8 space-x-reverse">
-            {[1, 2, 3].map((stepNum) => (
+          <div className="flex items-center justify-center space-x-4 space-x-reverse">
+            {[1, 2, 3, 4].map((stepNum) => (
               <div key={stepNum} className="flex items-center">
                 <motion.div
                   animate={{
@@ -144,9 +176,9 @@ const CreateStoryPage: React.FC = () => {
                     stepNum
                   )}
                 </motion.div>
-                {stepNum < 3 && (
+                {stepNum < 4 && (
                   <div
-                    className={`w-16 h-1 mx-4 ${
+                    className={`w-12 h-1 mx-2 ${
                       step > stepNum ? "bg-primary" : "bg-gray-300"
                     }`}
                   />
@@ -155,7 +187,7 @@ const CreateStoryPage: React.FC = () => {
             ))}
           </div>
           <div className="flex justify-center mt-4">
-            <div className="flex space-x-8 space-x-reverse text-sm font-reem text-center">
+            <div className="flex space-x-6 space-x-reverse text-xs font-reem text-center">
               <span className={step >= 1 ? "text-primary" : "text-gray-500"}>
                 معلومات الطفل
               </span>
@@ -164,6 +196,9 @@ const CreateStoryPage: React.FC = () => {
               </span>
               <span className={step >= 3 ? "text-primary" : "text-gray-500"}>
                 اختر القصة
+              </span>
+              <span className={step >= 4 ? "text-primary" : "text-gray-500"}>
+                طلب الشراء
               </span>
             </div>
           </div>
@@ -417,6 +452,38 @@ const CreateStoryPage: React.FC = () => {
               )}
             </div>
           )}
+
+          {step === 4 && (
+            <div className="space-y-8">
+              <div className="text-center mb-8">
+                <div className="text-6xl mb-4">🛒</div>
+                <h2 className="text-2xl font-reem font-bold text-primary mb-2">
+                  طلب شراء الكتاب المخصص
+                </h2>
+                <p className="font-tajawal text-gray-600">
+                  تم إنشاء التخصيص بنجاح! الآن يمكنك إرسال طلب الشراء للإدارة
+                </p>
+              </div>
+
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-gradient-to-r from-primary/10 to-secondary/10 rounded-2xl p-6 text-center"
+              >
+                <Check className="h-12 w-12 text-primary mx-auto mb-4" />
+                <h3 className="font-reem font-bold text-primary mb-2 text-xl">
+                  تم إنشاء التخصيص بنجاح!
+                </h3>
+                <p className="font-tajawal text-gray-600 mb-4">
+                  تم تخصيص الكتاب "{selectedBook?.title}" لطفلك {childName}
+                </p>
+                <p className="font-tajawal text-sm text-gray-500">
+                  سيتم مراجعة طلب الشراء من قبل الإدارة وإضافته إلى مكتبتك بعد
+                  الموافقة
+                </p>
+              </motion.div>
+            </div>
+          )}
         </motion.div>
 
         {/* Navigation Buttons */}
@@ -437,11 +504,35 @@ const CreateStoryPage: React.FC = () => {
 
           <div className="text-center">
             <span className="font-tajawal text-gray-500 text-sm">
-              الخطوة {step} من 3
+              الخطوة {step} من 4
             </span>
           </div>
 
-          {step < 3 ? (
+          {step === 4 ? (
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={handleCreatePurchaseRequest}
+              disabled={!isStepComplete(step) || createRequestLoading}
+              className={`px-8 py-3 rounded-2xl font-reem font-medium flex items-center transition-all ${
+                isStepComplete(step) && !createRequestLoading
+                  ? "bg-gradient-to-r from-accent2 to-secondary text-white shadow-lg"
+                  : "bg-gray-200 text-gray-400 cursor-not-allowed"
+              }`}
+            >
+              {createRequestLoading ? (
+                <>
+                  <Loader2 className="h-5 w-5 ml-2 animate-spin" />
+                  جاري الإرسال...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-5 w-5 ml-2" />
+                  إرسال طلب الشراء
+                </>
+              )}
+            </motion.button>
+          ) : step < 3 ? (
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}

@@ -18,7 +18,6 @@ import {
   customizeBook,
   clearError,
 } from "../../store/slices/bookSlice";
-import { createPurchaseRequest } from "../../store/slices/purchaseSlice";
 import { bookApi } from "../../services/api";
 import Button from "../../components/ui/Button";
 import Input from "../../components/ui/Input";
@@ -31,7 +30,6 @@ const BookDetailsPage: React.FC = () => {
   const { book, loading, error, customizeBookLoading } = useAppSelector(
     (state) => state.books
   );
-  const { createRequestLoading } = useAppSelector((state) => state.purchase);
 
   const [coverImageUrl, setCoverImageUrl] = useState<string | null>(null);
   const [isLiked, setIsLiked] = useState(false);
@@ -316,38 +314,14 @@ const BookDetailsPage: React.FC = () => {
                   <motion.button
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
-                    onClick={async () => {
+                    onClick={() => {
                       if (!book) return;
-                      try {
-                        await dispatch(
-                          createPurchaseRequest({ book_id: book.id })
-                        ).unwrap();
-                        alert(
-                          "تم إنشاء طلب الشراء بنجاح! سيتم مراجعته من قبل المدير."
-                        );
-                        navigate("/profile");
-                      } catch (err: unknown) {
-                        alert((err as Error).message || "فشل إنشاء طلب الشراء");
-                      }
+                      navigate("/checkout", { state: { bookId: book.id } });
                     }}
-                    disabled={createRequestLoading}
-                    className={`flex-1 border-2 border-primary py-4 rounded-2xl font-reem font-semibold transition-colors ${
-                      createRequestLoading
-                        ? "bg-gray-200 text-gray-400 cursor-not-allowed border-gray-300"
-                        : "bg-white text-primary hover:bg-primary hover:text-white"
-                    }`}
+                    className="flex-1 border-2 border-primary py-4 rounded-2xl font-reem font-semibold transition-colors bg-white text-primary hover:bg-primary hover:text-white"
                   >
-                    {createRequestLoading ? (
-                      <>
-                        <Loader2 className="h-5 w-5 inline-block ml-2 animate-spin" />
-                        جاري المعالجة...
-                      </>
-                    ) : (
-                      <>
-                        <ShoppingCart className="h-5 w-5 inline-block ml-2" />
-                        اشترِ الآن
-                      </>
-                    )}
+                    <ShoppingCart className="h-5 w-5 inline-block ml-2" />
+                    اشترِ الآن
                   </motion.button>
 
                   <motion.button

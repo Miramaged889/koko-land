@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search,
@@ -6,7 +6,6 @@ import {
   Eye,
   CheckCircle,
   XCircle,
-  Clock,
   Loader2,
   AlertCircle,
   X,
@@ -23,24 +22,83 @@ import {
   processRequest,
   clearError,
 } from "../../store/slices/purchaseSlice";
-import { PurchaseRequest } from "../../services/api";
+import { listBooks } from "../../store/slices/bookSlice";
+import { listUsers } from "../../store/slices/userSlice";
+import { PurchaseRequest, CustomizationSummary } from "../../services/api";
+import { bookApi } from "../../services/api";
 
 const AdminOrders: React.FC = () => {
   const dispatch = useAppDispatch();
-  const {
-    requests,
-    loading,
-    error,
-    processRequestLoading,
-  } = useAppSelector((state) => state.purchase);
+  const { requests, loading, error, processRequestLoading } = useAppSelector(
+    (state) => state.purchase
+  );
+  const { books } = useAppSelector((state) => state.books);
+  const { allUsers } = useAppSelector((state) => state.users);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [selectedRequest, setSelectedRequest] = useState<PurchaseRequest | null>(null);
+  const [selectedRequest, setSelectedRequest] =
+    useState<PurchaseRequest | null>(null);
+  const [customizations, setCustomizations] = useState<CustomizationSummary[]>(
+    []
+  );
 
   useEffect(() => {
     dispatch(listAdminRequests());
+    dispatch(listBooks());
+    dispatch(listUsers());
+
+    // Fetch customizations using the summary format
+    const fetchCustomizations = async () => {
+      try {
+        const data = await bookApi.listCustomizationsSummary();
+        setCustomizations(data);
+      } catch (error) {
+        console.error("Failed to fetch customizations:", error);
+      }
+    };
+    fetchCustomizations();
   }, [dispatch]);
+
+  // Helper function to get user name by ID
+  const getUserName = useCallback(
+    (userId: number): string => {
+      const user = allUsers.find((u) => u.id === userId);
+      return user
+        ? `${user.first_name} ${user.last_name}`.trim()
+        : `المستخدم #${userId}`;
+    },
+    [allUsers]
+  );
+
+  // Helper function to get book name by ID
+  const getBookName = useCallback(
+    (bookId: number): string => {
+      const book = books.find((b) => b.id === bookId);
+      return book ? book.title : `الكتاب #${bookId}`;
+    },
+    [books]
+  );
+
+  // Helper function to get book price by ID
+  const getBookPrice = useCallback(
+    (bookId: number): number | null => {
+      const book = books.find((b) => b.id === bookId);
+      return book ? book.price : null;
+    },
+    [books]
+  );
+
+  // Helper function to get customization by ID
+  const getCustomization = useCallback(
+    (customizationId: number): CustomizationSummary | undefined => {
+      if (!customizations || !Array.isArray(customizations)) {
+        return undefined;
+      }
+      return customizations.find((c) => c.id === customizationId);
+    },
+    [customizations]
+  );
 
   const statusColors = {
     pending: "bg-yellow-100 text-yellow-800",
@@ -54,15 +112,35 @@ const AdminOrders: React.FC = () => {
     rejected: "مرفوض",
   };
 
-  const filteredRequests = requests.filter((request) => {
-    const matchesSearch =
-      request.id.toString().includes(searchTerm) ||
-      request.user.toString().includes(searchTerm) ||
-      request.book.toString().includes(searchTerm);
-    const matchesStatus =
-      statusFilter === "all" || request.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+  const filteredRequests = useMemo(() => {
+    return requests.filter((request) => {
+      const userName = getUserName(request.user);
+      const bookName = request.book ? getBookName(request.book) : "";
+      const customization = request.customization
+        ? getCustomization(request.customization)
+        : null;
+      const customizationTitle = customization ? customization.book_title : "";
+
+      const matchesSearch =
+        searchTerm === "" ||
+        request.id.toString().includes(searchTerm) ||
+        request.user.toString().includes(searchTerm) ||
+        (request.book && request.book.toString().includes(searchTerm)) ||
+        userName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        bookName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        customizationTitle.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesStatus =
+        statusFilter === "all" || request.status === statusFilter;
+      return matchesSearch && matchesStatus;
+    });
+  }, [
+    requests,
+    searchTerm,
+    statusFilter,
+    getUserName,
+    getBookName,
+    getCustomization,
+  ]);
 
   const handleProcessRequest = async (
     requestId: number,
@@ -76,6 +154,8 @@ const AdminOrders: React.FC = () => {
           : "تم رفض الطلب"
       );
       setSelectedRequest(null);
+      // Refresh the requests list
+      dispatch(listAdminRequests());
     } catch (err: unknown) {
       alert((err as Error).message || "فشل معالجة الطلب");
     }
@@ -219,22 +299,68 @@ const AdminOrders: React.FC = () => {
                       <div className="flex items-center gap-2 text-gray-600">
                         <User size={16} />
                         <span className="font-tajawal text-sm">
-                          المستخدم: {request.user}
+                          المستخدم: {getUserName(request.user)}
                         </span>
                       </div>
-                      <div className="flex items-center gap-2 text-gray-600">
-                        <BookOpen size={16} />
-                        <span className="font-tajawal text-sm">
-                          الكتاب: {request.book}
-                        </span>
-                      </div>
-                      {request.customization && (
-                        <div className="flex items-center gap-2 text-primary">
-                          <span className="font-tajawal text-sm">
-                            تخصيص: {request.customization}
-                          </span>
-                        </div>
-                      )}
+                      {request.customization ? (
+                        // Show customization data
+                        (() => {
+                          const customization = getCustomization(
+                            request.customization
+                          );
+                          if (customization) {
+                            // Get book price from books array using book_id
+                            const book = books.find(
+                              (b) => b.id === customization.book_id
+                            );
+                            const price = book ? book.price : null;
+
+                            return (
+                              <>
+                                <div className="flex items-center gap-2 text-gray-600">
+                                  <BookOpen size={16} />
+                                  <span className="font-tajawal text-sm">
+                                    الكتاب: {customization.book_title}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2 text-primary">
+                                  <span className="font-tajawal text-sm font-semibold">
+                                    تخصيص: {customization.child_name}
+                                  </span>
+                                </div>
+                                {price != null && (
+                                  <div className="flex items-center gap-2 text-green-600">
+                                    <span className="font-tajawal text-sm font-semibold">
+                                      السعر: ${(Number(price) || 0).toFixed(2)}
+                                    </span>
+                                  </div>
+                                )}
+                              </>
+                            );
+                          }
+                          return null;
+                        })()
+                      ) : request.book ? (
+                        // Show regular book data (when book is not null)
+                        <>
+                          <div className="flex items-center gap-2 text-gray-600">
+                            <BookOpen size={16} />
+                            <span className="font-tajawal text-sm">
+                              الكتاب: {getBookName(request.book)}
+                            </span>
+                          </div>
+                          {getBookPrice(request.book) != null && (
+                            <div className="flex items-center gap-2 text-green-600">
+                              <span className="font-tajawal text-sm font-semibold">
+                                السعر: $
+                                {(
+                                  Number(getBookPrice(request.book)) || 0
+                                ).toFixed(2)}
+                              </span>
+                            </div>
+                          )}
+                        </>
+                      ) : null}
                       <div className="flex items-center gap-2 text-gray-600">
                         <Calendar size={16} />
                         <span className="font-tajawal text-xs">
@@ -253,53 +379,57 @@ const AdminOrders: React.FC = () => {
                 </div>
 
                 {/* Actions */}
-                {request.status === "pending" && (
-                  <div className="flex gap-2 pt-4 border-t border-gray-100">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setSelectedRequest(request)}
-                      className="flex-1"
-                      icon={<Eye size={16} />}
-                    >
-                      عرض
-                    </Button>
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      onClick={() =>
-                        handleProcessRequest(request.id, "approve")
-                      }
-                      disabled={processRequestLoading}
-                      className="flex-1"
-                      icon={
-                        processRequestLoading ? (
-                          <Loader2 className="animate-spin" size={16} />
-                        ) : (
-                          <CheckCircle size={16} />
-                        )
-                      }
-                    >
-                      موافقة
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleProcessRequest(request.id, "reject")}
-                      disabled={processRequestLoading}
-                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                      icon={
-                        processRequestLoading ? (
-                          <Loader2 className="animate-spin" size={16} />
-                        ) : (
-                          <XCircle size={16} />
-                        )
-                      }
-                    >
-                      رفض
-                    </Button>
-                  </div>
-                )}
+                <div className="flex gap-2 pt-4 border-t border-gray-100">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSelectedRequest(request)}
+                    className="flex-1"
+                    icon={<Eye size={16} />}
+                  >
+                    عرض التفاصيل
+                  </Button>
+                  {request.status === "pending" && (
+                    <>
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={() =>
+                          handleProcessRequest(request.id, "approve")
+                        }
+                        disabled={processRequestLoading}
+                        className="flex-1"
+                        icon={
+                          processRequestLoading ? (
+                            <Loader2 className="animate-spin" size={16} />
+                          ) : (
+                            <CheckCircle size={16} />
+                          )
+                        }
+                      >
+                        موافقة
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() =>
+                          handleProcessRequest(request.id, "reject")
+                        }
+                        disabled={processRequestLoading}
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                        icon={
+                          processRequestLoading ? (
+                            <Loader2 className="animate-spin" size={16} />
+                          ) : (
+                            <XCircle size={16} />
+                          )
+                        }
+                      >
+                        رفض
+                      </Button>
+                    </>
+                  )}
+                </div>
               </Card>
             </motion.div>
           ))}
@@ -354,21 +484,106 @@ const AdminOrders: React.FC = () => {
                     </p>
                     <p className="font-tajawal text-gray-800">
                       <span className="font-semibold">المستخدم:</span>{" "}
-                      {selectedRequest.user}
+                      {getUserName(selectedRequest.user)}
                     </p>
-                    <p className="font-tajawal text-gray-800">
-                      <span className="font-semibold">الكتاب:</span>{" "}
-                      {selectedRequest.book}
-                    </p>
-                    {selectedRequest.customization && (
-                      <p className="font-tajawal text-primary">
-                        <span className="font-semibold">التخصيص:</span>{" "}
-                        {selectedRequest.customization}
-                      </p>
-                    )}
+                    {selectedRequest.customization ? (
+                      // Show customization data
+                      (() => {
+                        const customization = getCustomization(
+                          selectedRequest.customization
+                        );
+                        if (customization) {
+                          // Get book price from books array using book_id
+                          const book = books.find(
+                            (b) => b.id === customization.book_id
+                          );
+                          const price = book ? book.price : null;
+
+                          return (
+                            <>
+                              <p className="font-tajawal text-gray-800">
+                                <span className="font-semibold">الكتاب:</span>{" "}
+                                {customization.book_title}
+                              </p>
+                              <p className="font-tajawal text-primary">
+                                <span className="font-semibold">التخصيص:</span>{" "}
+                                {customization.child_name}
+                                <span className="text-gray-500 text-xs mr-2">
+                                  (ID: #{selectedRequest.customization})
+                                </span>
+                              </p>
+                              {price != null && (
+                                <p className="font-tajawal text-green-600">
+                                  <span className="font-semibold">السعر:</span>{" "}
+                                  ${(Number(price) || 0).toFixed(2)}
+                                </p>
+                              )}
+                            </>
+                          );
+                        }
+                        return (
+                          <p className="font-tajawal text-gray-800">
+                            <span className="font-semibold">الكتاب:</span>{" "}
+                            {selectedRequest.book
+                              ? getBookName(selectedRequest.book)
+                              : "غير متاح"}
+                            <span className="text-gray-500 text-xs mr-2">
+                              (التخصيص غير متاح)
+                            </span>
+                          </p>
+                        );
+                      })()
+                    ) : selectedRequest.book ? (
+                      // Show regular book data (when book is not null)
+                      <>
+                        <p className="font-tajawal text-gray-800">
+                          <span className="font-semibold">الكتاب:</span>{" "}
+                          {getBookName(selectedRequest.book)}
+                        </p>
+                        {getBookPrice(selectedRequest.book) != null && (
+                          <p className="font-tajawal text-green-600">
+                            <span className="font-semibold">السعر:</span> $
+                            {(
+                              Number(getBookPrice(selectedRequest.book)) || 0
+                            ).toFixed(2)}
+                          </p>
+                        )}
+                      </>
+                    ) : null}
+                    {(() => {
+                      const user = allUsers.find(
+                        (u) => u.id === selectedRequest.user
+                      );
+                      return (
+                        <>
+                          {user?.phone && (
+                            <p className="font-tajawal text-gray-800">
+                              <span className="font-semibold">رقم الهاتف:</span>{" "}
+                              <span className="text-gray-600">
+                                {user.phone}
+                              </span>
+                            </p>
+                          )}
+                          {user?.address && (
+                            <p className="font-tajawal text-gray-800">
+                              <span className="font-semibold">العنوان:</span>{" "}
+                              <span className="text-gray-600">
+                                {user.address}
+                              </span>
+                            </p>
+                          )}
+                        </>
+                      );
+                    })()}
                     <p className="font-tajawal text-gray-600">
                       <span className="font-semibold">الحالة:</span>{" "}
-                      {statusLabels[selectedRequest.status]}
+                      <span
+                        className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                          statusColors[selectedRequest.status]
+                        }`}
+                      >
+                        {statusLabels[selectedRequest.status]}
+                      </span>
                     </p>
                     <p className="font-tajawal text-gray-600">
                       <span className="font-semibold">التاريخ:</span>{" "}
