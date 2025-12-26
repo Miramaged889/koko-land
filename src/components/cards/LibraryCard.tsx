@@ -32,17 +32,23 @@ const LibraryCard: React.FC<LibraryCardProps> = ({
   const [loadingBookDetails, setLoadingBookDetails] = useState(false);
   const book = libraryItem.book;
 
+  // Type guard to check if book is a Book object (not a number)
+  const isBookObject = (book: Book | number | null): book is Book => {
+    return book !== null && typeof book === "object" && "id" in book;
+  };
+
   // Note: We no longer fetch customization details via getCustomization API
   // We use customizationSummary prop which contains all needed data from listCustomizations API
 
   // Load cover image
   useEffect(() => {
     const loadCoverImage = async () => {
-      if (book) {
+      const bookObj = book && isBookObject(book) ? book : null;
+      if (bookObj) {
         // Regular book
         try {
           setLoadingImage(true);
-          const coverBlob = await bookApi.getBookCover(book.id);
+          const coverBlob = await bookApi.getBookCover(bookObj.id);
           const coverUrl = URL.createObjectURL(coverBlob);
           setCoverImageUrl((prev) => {
             if (prev) URL.revokeObjectURL(prev);
@@ -94,7 +100,7 @@ const LibraryCard: React.FC<LibraryCardProps> = ({
       }
     };
 
-    if (book || customizationSummary) {
+    if ((book && isBookObject(book)) || customizationSummary) {
       loadCoverImage();
     }
 
@@ -113,7 +119,11 @@ const LibraryCard: React.FC<LibraryCardProps> = ({
 
   // For custom books, we need customization summary to display
   // If we don't have summary, show a placeholder card
-  if (!book && !customizationSummary && libraryItem.custom_book !== null) {
+  if (
+    !isBookObject(book) &&
+    !customizationSummary &&
+    libraryItem.custom_book !== null
+  ) {
     // Custom book exists but failed to load - show placeholder
     return (
       <motion.div
@@ -144,18 +154,19 @@ const LibraryCard: React.FC<LibraryCardProps> = ({
   }
 
   // Don't render if neither book nor customization summary is available
-  if (!book && !customizationSummary) {
+  if (!isBookObject(book) && !customizationSummary) {
     return null;
   }
 
   // Use summary data for display
+  const bookObject = book && isBookObject(book) ? book : null;
   const displayBook =
-    book ||
+    bookObject ||
     (customizationSummary
       ? { id: customizationSummary.book_id, category: "", price: 0 }
       : null);
   const displayTitle =
-    book?.title || customizationSummary?.book_title || "كتاب مخصص";
+    bookObject?.title || customizationSummary?.book_title || "كتاب مخصص";
   const childName = customizationSummary?.child_name || "";
   const childAge = customizationSummary?.child_age || "";
 
@@ -171,7 +182,7 @@ const LibraryCard: React.FC<LibraryCardProps> = ({
       } finally {
         setLoadingBookDetails(false);
       }
-    } else if (book) {
+    } else if (book && isBookObject(book)) {
       setShowDetailsModal(true);
       setBookDetails(book);
     }
@@ -179,7 +190,7 @@ const LibraryCard: React.FC<LibraryCardProps> = ({
 
   const handleDownload = async () => {
     try {
-      if (book) {
+      if (book && isBookObject(book)) {
         // Regular book
         const blob = await bookApi.getBookFile(book.id);
         const url = URL.createObjectURL(blob);
@@ -274,23 +285,25 @@ const LibraryCard: React.FC<LibraryCardProps> = ({
             </span>
           </div>
         )}
-        {displayBook && (
-          <div className="flex items-center gap-2 mb-3">
-            {displayBook.category && (
-              <>
-                <span className="font-tajawal text-sm text-gray-600">
-                  {displayBook.category}
+        {displayBook &&
+          typeof displayBook === "object" &&
+          "category" in displayBook && (
+            <div className="flex items-center gap-2 mb-3">
+              {displayBook.category && (
+                <>
+                  <span className="font-tajawal text-sm text-gray-600">
+                    {displayBook.category}
+                  </span>
+                  <span className="text-gray-300">•</span>
+                </>
+              )}
+              {"price" in displayBook && displayBook.price > 0 && (
+                <span className="text-primary font-changa font-bold">
+                  {displayBook.price} ر.س
                 </span>
-                <span className="text-gray-300">•</span>
-              </>
-            )}
-            {displayBook.price > 0 && (
-              <span className="text-primary font-changa font-bold">
-                {displayBook.price} ر.س
-              </span>
-            )}
-          </div>
-        )}
+              )}
+            </div>
+          )}
         <div className="flex items-center gap-2 mb-4">
           <Calendar size={16} className="text-gray-400" />
           <span className="font-tajawal text-xs text-gray-500">

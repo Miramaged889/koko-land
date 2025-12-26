@@ -1,19 +1,92 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import { getUserLibrary } from "../../store/slices/purchaseSlice";
 import LibraryCard from "../../components/cards/LibraryCard";
+import {
+  bookApi,
+  CustomizationSummary,
+  Book,
+  LibraryItem,
+} from "../../services/api";
 
 const MyLibraryPage: React.FC = () => {
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
   const { library, libraryLoading } = useAppSelector((state) => state.purchase);
 
+  const [customizationsMap, setCustomizationsMap] = useState<
+    Record<number, CustomizationSummary>
+  >({});
+  const [booksMap, setBooksMap] = useState<Record<number, Book>>({});
+
   useEffect(() => {
     dispatch(getUserLibrary());
   }, [dispatch]);
+
+  // Fetch customizations when library is loaded
+  useEffect(() => {
+    if (library.length > 0) {
+      const fetchCustomizations = async () => {
+        try {
+          const customizations = await bookApi.listCustomizationsSummary();
+          // Create a map of customization ID to customization data
+          const map: Record<number, CustomizationSummary> = {};
+          customizations.forEach((custom) => {
+            map[custom.id] = custom;
+          });
+          setCustomizationsMap(map);
+        } catch (error) {
+          console.error("Failed to load customizations:", error);
+        }
+      };
+
+      fetchCustomizations();
+    }
+  }, [library]);
+
+  // Fetch books when library is loaded
+  useEffect(() => {
+    if (library.length > 0) {
+      const fetchBooks = async () => {
+        try {
+          // Get unique book IDs that are numbers (not Book objects)
+          const bookIds = new Set<number>();
+          library.forEach((item) => {
+            if (item.book !== null && typeof item.book === "number") {
+              bookIds.add(item.book);
+            }
+          });
+
+          // Fetch all books in parallel
+          const bookPromises = Array.from(bookIds).map(async (bookId) => {
+            try {
+              const book = await bookApi.getBook(bookId);
+              return { id: bookId, book };
+            } catch (error) {
+              console.error(`Failed to load book ${bookId}:`, error);
+              return null;
+            }
+          });
+
+          const bookResults = await Promise.all(bookPromises);
+          const map: Record<number, Book> = {};
+          bookResults.forEach((result) => {
+            if (result) {
+              map[result.id] = result.book;
+            }
+          });
+          setBooksMap(map);
+        } catch (error) {
+          console.error("Failed to load books:", error);
+        }
+      };
+
+      fetchBooks();
+    }
+  }, [library]);
 
   if (libraryLoading) {
     return (
@@ -100,16 +173,35 @@ const MyLibraryPage: React.FC = () => {
           >
             {library
               .filter((item) => item.book !== null || item.custom_book !== null)
-              .map((item, index) => (
-                <motion.div
-                  key={item.id}
-                  initial={{ opacity: 0, y: 50 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.3, delay: index * 0.1 }}
-                >
-                  <LibraryCard libraryItem={item} />
-                </motion.div>
-              ))}
+              .map((item, index) => {
+                // Convert book ID to Book object if needed
+                let bookData: Book | null = null;
+                if (item.book !== null) {
+                  if (typeof item.book === "number") {
+                    bookData = booksMap[item.book] || null;
+                  } else {
+                    bookData = item.book;
+                  }
+                }
+
+                return (
+                  <motion.div
+                    key={item.id}
+                    initial={{ opacity: 0, y: 50 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.3, delay: index * 0.1 }}
+                  >
+                    <LibraryCard
+                      libraryItem={{ ...item, book: bookData } as LibraryItem}
+                      customizationSummary={
+                        item.custom_book
+                          ? customizationsMap[item.custom_book] || undefined
+                          : undefined
+                      }
+                    />
+                  </motion.div>
+                );
+              })}
           </motion.div>
         ) : (
           /* Empty State */

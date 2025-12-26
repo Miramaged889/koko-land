@@ -272,7 +272,7 @@ export interface ProcessRequestResponse {
 export interface LibraryItem {
   id: number;
   user: number;
-  book: Book | null;
+  book: Book | number | null; // Can be a Book object, book ID (number), or null
   custom_book: number | null;
   added_at: string;
 }

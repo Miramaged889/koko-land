@@ -34,7 +34,12 @@ import {
   clearError as clearPurchaseError,
 } from "../../store/slices/purchaseSlice";
 import LibraryCard from "../../components/cards/LibraryCard";
-import { bookApi, CustomizationSummary } from "../../services/api";
+import {
+  bookApi,
+  CustomizationSummary,
+  Book,
+  LibraryItem,
+} from "../../services/api";
 
 type TabType = "profile" | "password" | "customizations" | "delete";
 
@@ -87,6 +92,7 @@ const ProfilePage: React.FC = () => {
   const [customizationsMap, setCustomizationsMap] = useState<
     Record<number, CustomizationSummary>
   >({});
+  const [booksMap, setBooksMap] = useState<Record<number, Book>>({});
 
   // Redirect if not authenticated
   useEffect(() => {
@@ -125,6 +131,51 @@ const ProfilePage: React.FC = () => {
       fetchCustomizations();
     }
   }, [dispatch, isAuthenticated, activeTab]);
+
+  // Fetch books when library is loaded and customizations tab is active
+  useEffect(() => {
+    if (
+      isAuthenticated &&
+      activeTab === "customizations" &&
+      library.length > 0
+    ) {
+      const fetchBooks = async () => {
+        try {
+          // Get unique book IDs that are numbers (not Book objects)
+          const bookIds = new Set<number>();
+          library.forEach((item) => {
+            if (item.book !== null && typeof item.book === "number") {
+              bookIds.add(item.book);
+            }
+          });
+
+          // Fetch all books in parallel
+          const bookPromises = Array.from(bookIds).map(async (bookId) => {
+            try {
+              const book = await bookApi.getBook(bookId);
+              return { id: bookId, book };
+            } catch (error) {
+              console.error(`Failed to load book ${bookId}:`, error);
+              return null;
+            }
+          });
+
+          const bookResults = await Promise.all(bookPromises);
+          const map: Record<number, Book> = {};
+          bookResults.forEach((result) => {
+            if (result) {
+              map[result.id] = result.book;
+            }
+          });
+          setBooksMap(map);
+        } catch (error) {
+          console.error("Failed to load books:", error);
+        }
+      };
+
+      fetchBooks();
+    }
+  }, [library, isAuthenticated, activeTab]);
 
   // Update form when profile loads
   useEffect(() => {
@@ -692,17 +743,31 @@ const ProfilePage: React.FC = () => {
                     .filter(
                       (item) => item.book !== null || item.custom_book !== null
                     )
-                    .map((item) => (
-                      <LibraryCard
-                        key={item.id}
-                        libraryItem={item}
-                        customizationSummary={
-                          item.custom_book
-                            ? customizationsMap[item.custom_book] || undefined
-                            : undefined
+                    .map((item) => {
+                      // Convert book ID to Book object if needed
+                      let bookData: Book | null = null;
+                      if (item.book !== null) {
+                        if (typeof item.book === "number") {
+                          bookData = booksMap[item.book] || null;
+                        } else {
+                          bookData = item.book;
                         }
-                      />
-                    ))}
+                      }
+
+                      return (
+                        <LibraryCard
+                          key={item.id}
+                          libraryItem={
+                            { ...item, book: bookData } as LibraryItem
+                          }
+                          customizationSummary={
+                            item.custom_book
+                              ? customizationsMap[item.custom_book] || undefined
+                              : undefined
+                          }
+                        />
+                      );
+                    })}
                 </div>
               )}
             </Card>
