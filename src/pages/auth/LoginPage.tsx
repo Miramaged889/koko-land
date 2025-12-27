@@ -8,8 +8,6 @@ import {
   EyeOff,
   Sparkles,
   ArrowRight,
-  Globe,
-  Share2,
   AlertCircle,
 } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
@@ -86,6 +84,10 @@ const LoginPage: React.FC = () => {
       return;
     }
 
+    // Clear previous errors
+    setErrors({ email: "", password: "" });
+    dispatch(clearError());
+
     try {
       const result = await dispatch(loginUser(formData)).unwrap();
       // Redirect based on admin status
@@ -95,8 +97,14 @@ const LoginPage: React.FC = () => {
         navigate("/");
       }
     } catch (err) {
-      // Error is handled by Redux
-      console.error("Login error:", err);
+      // Set field-specific errors based on error message
+      const errorMessage = (err as Error).message || "";
+      if (errorMessage.includes("البريد الإلكتروني غير مسجل")) {
+        setErrors({ email: errorMessage, password: "" });
+      } else if (errorMessage.includes("كلمة المرور غير صحيحة")) {
+        setErrors({ email: "", password: errorMessage });
+      }
+      // General error is handled by Redux and will be displayed
     }
   };
 
@@ -166,8 +174,8 @@ const LoginPage: React.FC = () => {
             </p>
           </motion.div>
 
-          {/* Error Message */}
-          {error && (
+          {/* Error Message - Only show if no field-specific errors */}
+          {error && !errors.email && !errors.password && (
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -298,44 +306,6 @@ const LoginPage: React.FC = () => {
                 </>
               )}
             </motion.button>
-
-            {/* Divider */}
-            <div className="relative my-8">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-300"></div>
-              </div>
-              <div className="relative flex justify-center text-sm">
-                <span className="px-4 bg-gradient-to-br from-purple-50 via-pink-50 to-orange-50 text-gray-500 font-tajawal">
-                  أو
-                </span>
-              </div>
-            </div>
-
-            {/* Social Login */}
-            <div className="grid grid-cols-2 gap-4">
-              <motion.button
-                type="button"
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                className="flex items-center justify-center gap-2 px-4 py-3 border-2 border-gray-200 rounded-xl hover:border-primary hover:bg-primary/5 transition-all"
-              >
-                <Globe className="w-5 h-5 text-gray-700" />
-                <span className="font-tajawal text-sm text-gray-700">
-                  Google
-                </span>
-              </motion.button>
-              <motion.button
-                type="button"
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                className="flex items-center justify-center gap-2 px-4 py-3 border-2 border-gray-200 rounded-xl hover:border-primary hover:bg-primary/5 transition-all"
-              >
-                <Share2 className="w-5 h-5 text-gray-700" />
-                <span className="font-tajawal text-sm text-gray-700">
-                  Facebook
-                </span>
-              </motion.button>
-            </div>
 
             {/* Register Link */}
             <div className="text-center pt-4">

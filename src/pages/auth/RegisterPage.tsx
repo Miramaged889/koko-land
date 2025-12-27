@@ -124,6 +124,17 @@ const RegisterPage: React.FC = () => {
       return;
     }
 
+    // Clear previous errors
+    const clearedErrors = {
+      first_name: "",
+      last_name: "",
+      email: "",
+      password: "",
+      password2: "",
+    };
+    setErrors(clearedErrors);
+    dispatch(clearError());
+
     try {
       await dispatch(
         registerUser({
@@ -137,8 +148,14 @@ const RegisterPage: React.FC = () => {
       // Navigation will happen automatically via useEffect when isAuthenticated changes
       navigate("/");
     } catch (err) {
-      // Error is handled by Redux
-      console.error("Registration error:", err);
+      // Set field-specific errors based on error message
+      const errorMessage = (err as Error).message || "";
+      if (errorMessage.includes("البريد الإلكتروني مسجل مسبقاً")) {
+        setErrors({ ...clearedErrors, email: errorMessage });
+      } else if (errorMessage.includes("كلمات المرور غير متطابقة")) {
+        setErrors({ ...clearedErrors, password2: errorMessage });
+      }
+      // General error is handled by Redux and will be displayed
     }
   };
 
@@ -232,8 +249,13 @@ const RegisterPage: React.FC = () => {
             </p>
           </motion.div>
 
-          {/* Error Message */}
-          {error && (
+          {/* Error Message - Only show if no field-specific errors */}
+          {error && 
+           !errors.email && 
+           !errors.password && 
+           !errors.password2 && 
+           !errors.first_name && 
+           !errors.last_name && (
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}

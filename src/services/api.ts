@@ -429,11 +429,42 @@ const apiRequest = async <T>(
     let errorMessage = `HTTP error! status: ${response.status}`;
     try {
       const errorData = await response.json();
-      errorMessage =
-        errorData.message ||
-        errorData.error ||
-        errorData.detail ||
-        errorMessage;
+
+      // Handle Django REST Framework error formats
+      // Check for field-specific errors (e.g., {"email": ["user with this email already exists."]})
+      if (typeof errorData === "object" && errorData !== null) {
+        // Check for non-field errors first
+        if (
+          errorData.non_field_errors &&
+          Array.isArray(errorData.non_field_errors)
+        ) {
+          errorMessage = errorData.non_field_errors[0];
+        }
+        // Check for field errors (email, password, etc.)
+        else if (errorData.email && Array.isArray(errorData.email)) {
+          errorMessage = `email: ${errorData.email[0]}`;
+        } else if (errorData.password && Array.isArray(errorData.password)) {
+          errorMessage = `password: ${errorData.password[0]}`;
+        } else if (errorData.password2 && Array.isArray(errorData.password2)) {
+          errorMessage = `password2: ${errorData.password2[0]}`;
+        }
+        // Fallback to common error fields
+        else {
+          errorMessage =
+            errorData.message ||
+            errorData.error ||
+            errorData.detail ||
+            errorMessage;
+        }
+      } else if (typeof errorData === "string") {
+        errorMessage = errorData;
+      } else {
+        errorMessage =
+          errorData.message ||
+          errorData.error ||
+          errorData.detail ||
+          errorMessage;
+      }
     } catch {
       // If response is not JSON, use status text
       errorMessage = response.statusText || errorMessage;

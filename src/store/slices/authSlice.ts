@@ -32,6 +32,79 @@ const initialState: AuthState = {
   error: null,
 };
 
+// Helper function to parse and translate error messages
+const parseErrorMessage = (
+  error: unknown,
+  type: "login" | "register"
+): string => {
+  let errorMessage = (error as Error).message || "";
+
+  // Remove field prefixes like "email: " or "password: " if present
+  const fieldPrefixMatch = errorMessage.match(
+    /^(email|password|password2):\s*/i
+  );
+  if (fieldPrefixMatch) {
+    errorMessage = errorMessage.substring(fieldPrefixMatch[0].length);
+  }
+
+  const errorString = errorMessage.toLowerCase().trim();
+
+  if (type === "login") {
+    // Check for email not found / doesn't exist
+    if (
+      errorString.includes("email") &&
+      (errorString.includes("does not exist") ||
+        errorString.includes("not found") ||
+        errorString.includes("no active account") ||
+        errorString.includes("invalid") ||
+        errorString.includes("not registered"))
+    ) {
+      return "البريد الإلكتروني غير مسجل في النظام";
+    }
+    // Check for wrong password
+    if (
+      errorString.includes("password") ||
+      errorString.includes("invalid credentials") ||
+      errorString.includes("incorrect") ||
+      errorString.includes("wrong") ||
+      errorString.includes("authentication failed") ||
+      errorString.includes("unauthorized")
+    ) {
+      return "كلمة المرور غير صحيحة";
+    }
+    // Generic login error
+    if (errorMessage) {
+      return errorMessage;
+    }
+    return "فشل تسجيل الدخول. يرجى التحقق من البيانات وإعادة المحاولة";
+  } else {
+    // Register errors
+    if (
+      errorString.includes("email") &&
+      (errorString.includes("already exists") ||
+        errorString.includes("already registered") ||
+        errorString.includes("unique") ||
+        errorString.includes("taken") ||
+        errorString.includes("user with this email"))
+    ) {
+      return "هذا البريد الإلكتروني مسجل مسبقاً";
+    }
+    if (
+      errorString.includes("password") &&
+      (errorString.includes("match") ||
+        errorString.includes("mismatch") ||
+        errorString.includes("do not match"))
+    ) {
+      return "كلمات المرور غير متطابقة";
+    }
+    // Generic register error
+    if (errorMessage) {
+      return errorMessage;
+    }
+    return "فشل إنشاء الحساب. يرجى التحقق من البيانات وإعادة المحاولة";
+  }
+};
+
 // Async thunks
 export const loginUser = createAsyncThunk(
   "auth/login",
@@ -52,7 +125,8 @@ export const loginUser = createAsyncThunk(
         email: credentials.email,
       };
     } catch (error: unknown) {
-      return rejectWithValue((error as Error).message || "فشل تسجيل الدخول");
+      const errorMessage = parseErrorMessage(error, "login");
+      return rejectWithValue(errorMessage);
     }
   }
 );
@@ -77,7 +151,8 @@ export const registerUser = createAsyncThunk(
         lastName: userData.last_name,
       };
     } catch (error: unknown) {
-      return rejectWithValue((error as Error).message || "فشل إنشاء الحساب");
+      const errorMessage = parseErrorMessage(error, "register");
+      return rejectWithValue(errorMessage);
     }
   }
 );
