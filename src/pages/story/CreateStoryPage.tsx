@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import {
   Upload,
   User,
@@ -17,11 +17,15 @@ import { createPurchaseRequest } from "../../store/slices/purchaseSlice";
 
 const CreateStoryPage: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const dispatch = useAppDispatch();
   const { books, loading, customizeBookLoading, error } = useAppSelector(
     (state) => state.books
   );
   const { createRequestLoading } = useAppSelector((state) => state.purchase);
+
+  // Get bookId from location state (if navigating from BookDetailsPage)
+  const bookIdFromState = location.state?.bookId as number | undefined;
 
   const [childName, setChildName] = useState("");
   const [selectedAge, setSelectedAge] = useState("");
@@ -37,6 +41,16 @@ const CreateStoryPage: React.FC = () => {
   useEffect(() => {
     dispatch(listBooks());
   }, [dispatch]);
+
+  // Pre-select the book if bookId is passed from navigation (but don't skip steps)
+  useEffect(() => {
+    if (bookIdFromState && books.length > 0) {
+      const bookExists = books.some((book) => book.id === bookIdFromState);
+      if (bookExists) {
+        setSelectedBookId(bookIdFromState);
+      }
+    }
+  }, [bookIdFromState, books]);
 
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];

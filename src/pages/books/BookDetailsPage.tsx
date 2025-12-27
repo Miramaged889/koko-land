@@ -303,7 +303,10 @@ const BookDetailsPage: React.FC = () => {
                 <motion.button
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
-                  onClick={() => setShowCustomizeModal(true)}
+                  onClick={() => {
+                    if (!book) return;
+                    navigate("/create", { state: { bookId: book.id } });
+                  }}
                   className="w-full bg-gradient-to-r from-primary to-secondary text-white py-4 rounded-2xl font-reem font-semibold flex items-center justify-center shadow-lg"
                 >
                   <Upload className="h-5 w-5 ml-2" />
