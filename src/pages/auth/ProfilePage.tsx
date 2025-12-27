@@ -728,14 +728,16 @@ const ProfilePage: React.FC = () => {
                   <p className="font-tajawal text-gray-400 text-sm">
                     تصفح الكتب واشترِ لتبدأ في بناء مكتبتك
                   </p>
-                  <Button
-                    variant="primary"
-                    onClick={() => navigate("/books")}
-                    className="mt-4"
-                    icon={<BookOpen size={16} />}
-                  >
-                    تصفح الكتب
-                  </Button>
+                  <div className="flex justify-center">
+                    <Button
+                      variant="primary"
+                      onClick={() => navigate("/books")}
+                      className="mt-4"
+                      icon={<BookOpen size={16} />}
+                    >
+                      تصفح الكتب
+                    </Button>
+                  </div>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
