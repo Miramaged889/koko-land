@@ -30,6 +30,7 @@ const LibraryCard: React.FC<LibraryCardProps> = ({
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [bookDetails, setBookDetails] = useState<Book | null>(null);
   const [loadingBookDetails, setLoadingBookDetails] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const book = libraryItem.book;
 
   // Type guard to check if book is a Book object (not a number)
@@ -189,20 +190,85 @@ const LibraryCard: React.FC<LibraryCardProps> = ({
   };
 
   const handleDownload = async () => {
+    if (downloading) return; // Prevent multiple clicks
+
+    setDownloading(true);
     try {
       if (book && isBookObject(book)) {
-        // Regular book
-        const blob = await bookApi.getBookFile(book.id);
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `${book.title}.pdf`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        // Regular book - optimized download
+        const token = localStorage.getItem("accessToken");
+        const url = `https://kokoland.onrender.com/books/bookfile/${book.id}/`;
+
+        const response = await fetch(url, {
+          headers: token
+            ? {
+                Authorization: `Bearer ${token}`,
+              }
+            : {},
+        });
+
+        if (!response.ok) {
+          // Try with refresh token if 401
+          if (response.status === 401) {
+            const refreshToken = localStorage.getItem("refreshToken");
+            if (refreshToken) {
+              const refreshResponse = await fetch(
+                "https://kokoland.onrender.com/user/token/refresh/",
+                {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ refresh: refreshToken }),
+                }
+              );
+
+              if (refreshResponse.ok) {
+                const { access } = await refreshResponse.json();
+                localStorage.setItem("accessToken", access);
+
+                // Retry with new token
+                const retryResponse = await fetch(url, {
+                  headers: { Authorization: `Bearer ${access}` },
+                });
+
+                if (!retryResponse.ok) {
+                  throw new Error("Failed to download");
+                }
+
+                // Download immediately
+                const blob = await retryResponse.blob();
+                const blobUrl = URL.createObjectURL(blob);
+                const link = document.createElement("a");
+                link.href = blobUrl;
+                link.download = `${book.title}.pdf`;
+                link.style.display = "none";
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                // Cleanup after download starts
+                setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
+                setDownloading(false);
+                return;
+              }
+            }
+          }
+          throw new Error("Failed to download");
+        }
+
+        // Create download link immediately - browser will handle streaming
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = blobUrl;
+        link.download = `${book.title}.pdf`;
+        link.style.display = "none";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        // Cleanup after download starts
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
+        setDownloading(false);
       } else if (customizationSummary) {
-        // Custom book with summary - use custom_book_url
+        // Custom book - optimized download
         const token = localStorage.getItem("accessToken");
         const response = await fetch(customizationSummary.custom_book_url, {
           headers: token
@@ -211,22 +277,30 @@ const LibraryCard: React.FC<LibraryCardProps> = ({
               }
             : {},
         });
-        if (response.ok) {
-          const blob = await response.blob();
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = `${customizationSummary.book_title}_${customizationSummary.child_name}.pdf`;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
-        } else {
+
+        if (!response.ok) {
           throw new Error("Failed to download");
         }
+
+        // Download immediately
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const fileName = `${customizationSummary.book_title}_${customizationSummary.child_name}.pdf`;
+        const link = document.createElement("a");
+        link.href = blobUrl;
+        link.download = fileName;
+        link.style.display = "none";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        // Cleanup after download starts
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
+        setDownloading(false);
       }
-    } catch {
+    } catch (error) {
+      console.error("Download error:", error);
       alert("فشل تحميل الكتاب");
+      setDownloading(false);
     }
   };
 
@@ -319,9 +393,11 @@ const LibraryCard: React.FC<LibraryCardProps> = ({
             size="sm"
             onClick={handleDownload}
             className="flex-1"
-            icon={<Download size={16} />}
+            loading={downloading}
+            disabled={downloading}
+            icon={!downloading ? <Download size={16} /> : undefined}
           >
-            تحميل
+            {downloading ? "جاري التحميل..." : "تحميل"}
           </Button>
           <Button
             variant="outline"
@@ -514,9 +590,11 @@ const LibraryCard: React.FC<LibraryCardProps> = ({
                         variant="primary"
                         onClick={handleDownload}
                         className="flex-1"
-                        icon={<Download size={18} />}
+                        loading={downloading}
+                        disabled={downloading}
+                        icon={!downloading ? <Download size={18} /> : undefined}
                       >
-                        تحميل PDF
+                        {downloading ? "جاري التحميل..." : "تحميل PDF"}
                       </Button>
                       <Button
                         variant="outline"

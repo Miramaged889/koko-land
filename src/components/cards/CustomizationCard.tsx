@@ -19,6 +19,7 @@ const CustomizationCard: React.FC<CustomizationCardProps> = ({
   const [coverImageUrl, setCoverImageUrl] = useState<string | null>(null);
   const [childImageUrl, setChildImageUrl] = useState<string | null>(null);
   const [loadingImages, setLoadingImages] = useState(true);
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     const loadImages = async () => {
@@ -50,18 +51,41 @@ const CustomizationCard: React.FC<CustomizationCardProps> = ({
   }, [customization.id, customization.book.id]);
 
   const handleDownload = async () => {
+    if (downloading) return;
+    
+    setDownloading(true);
     try {
-      const blob = await bookApi.getCustomBookFile(customization.id);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${customization.book.title}_${customization.child_name}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      const token = localStorage.getItem("accessToken");
+      const url = `https://kokoland.onrender.com/books/customizations/${customization.id}/file/`;
+      
+      const response = await fetch(url, {
+        headers: token
+          ? {
+              Authorization: `Bearer ${token}`,
+            }
+          : {},
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to download");
+      }
+
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const fileName = `${customization.book.title}_${customization.child_name}.pdf`;
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = fileName;
+      link.style.display = "none";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
+      setDownloading(false);
     } catch (error) {
+      console.error("Download error:", error);
       alert("فشل تحميل الكتاب المخصص");
+      setDownloading(false);
     }
   };
 
@@ -135,9 +159,11 @@ const CustomizationCard: React.FC<CustomizationCardProps> = ({
             size="sm"
             onClick={handleDownload}
             className="flex-1"
-            icon={<Download size={16} />}
+            loading={downloading}
+            disabled={downloading}
+            icon={!downloading ? <Download size={16} /> : undefined}
           >
-            تحميل
+            {downloading ? "جاري التحميل..." : "تحميل"}
           </Button>
           <Button
             variant="ghost"

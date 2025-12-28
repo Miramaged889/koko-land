@@ -42,6 +42,7 @@ const BookDetailsPage: React.FC = () => {
   const [childImagePreview, setChildImagePreview] = useState<string | null>(
     null
   );
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     if (bookId) {
@@ -52,18 +53,25 @@ const BookDetailsPage: React.FC = () => {
   // Load cover image
   useEffect(() => {
     const loadCoverImage = async () => {
-      if (book?.cover_image) {
-        try {
-          const blob = await bookApi.getBookCover(book.id);
-          const url = URL.createObjectURL(blob);
-          setCoverImageUrl(url);
-        } catch (error) {
-          console.error("Failed to load cover image:", error);
-        }
+      if (!book?.id) return;
+
+      try {
+        const blob = await bookApi.getBookCover(book.id);
+        const url = URL.createObjectURL(blob);
+        setCoverImageUrl((prevUrl) => {
+          // Clean up previous URL if exists
+          if (prevUrl) {
+            URL.revokeObjectURL(prevUrl);
+          }
+          return url;
+        });
+      } catch (error) {
+        console.error("Failed to load cover image:", error);
+        setCoverImageUrl(null);
       }
     };
 
-    if (book) {
+    if (book?.id) {
       loadCoverImage();
     }
 
@@ -73,7 +81,7 @@ const BookDetailsPage: React.FC = () => {
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [book]);
+  }, [book?.id]);
 
   const handleChildImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -122,20 +130,80 @@ const BookDetailsPage: React.FC = () => {
   };
 
   const handleDownloadBook = async () => {
-    if (!book) return;
+    if (!book || downloading) return;
 
+    setDownloading(true);
     try {
-      const blob = await bookApi.getBookFile(book.id);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${book.title}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch {
+      const token = localStorage.getItem("accessToken");
+      const url = `https://kokoland.onrender.com/books/bookfile/${book.id}/`;
+
+      const response = await fetch(url, {
+        headers: token
+          ? {
+              Authorization: `Bearer ${token}`,
+            }
+          : {},
+      });
+
+      if (!response.ok) {
+        // Try with refresh token if 401
+        if (response.status === 401) {
+          const refreshToken = localStorage.getItem("refreshToken");
+          if (refreshToken) {
+            const refreshResponse = await fetch(
+              "https://kokoland.onrender.com/user/token/refresh/",
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ refresh: refreshToken }),
+              }
+            );
+
+            if (refreshResponse.ok) {
+              const { access } = await refreshResponse.json();
+              localStorage.setItem("accessToken", access);
+
+              const retryResponse = await fetch(url, {
+                headers: { Authorization: `Bearer ${access}` },
+              });
+
+              if (!retryResponse.ok) {
+                throw new Error("Failed to download");
+              }
+
+              const blob = await retryResponse.blob();
+              const blobUrl = URL.createObjectURL(blob);
+              const link = document.createElement("a");
+              link.href = blobUrl;
+              link.download = `${book.title}.pdf`;
+              link.style.display = "none";
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+              setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
+              setDownloading(false);
+              return;
+            }
+          }
+        }
+        throw new Error("Failed to download");
+      }
+
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = `${book.title}.pdf`;
+      link.style.display = "none";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
+      setDownloading(false);
+    } catch (error) {
+      console.error("Download error:", error);
       alert("فشل تحميل الكتاب");
+      setDownloading(false);
     }
   };
 
@@ -328,12 +396,22 @@ const BookDetailsPage: React.FC = () => {
                   </motion.button>
 
                   <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
+                    whileHover={!downloading ? { scale: 1.02 } : {}}
+                    whileTap={!downloading ? { scale: 0.98 } : {}}
                     onClick={handleDownloadBook}
-                    className="px-6 bg-white border-2 border-primary text-primary py-4 rounded-2xl font-reem font-semibold hover:bg-primary hover:text-white transition-colors"
+                    disabled={downloading}
+                    className={`px-6 bg-white border-2 border-primary text-primary py-4 rounded-2xl font-reem font-semibold hover:bg-primary hover:text-white transition-colors ${
+                      downloading ? "opacity-50 cursor-not-allowed" : ""
+                    }`}
                   >
-                    <BookOpen className="h-5 w-5" />
+                    {downloading ? (
+                      <>
+                        <Loader2 className="h-5 w-5 animate-spin" />
+                        <span className="mr-2">جاري التحميل...</span>
+                      </>
+                    ) : (
+                      <BookOpen className="h-5 w-5" />
+                    )}
                   </motion.button>
                 </div>
               </div>

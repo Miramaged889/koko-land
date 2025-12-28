@@ -56,10 +56,13 @@ const AdminBooks: React.FC = () => {
     description: "",
   });
   const [bookFile, setBookFile] = useState<File | null>(null);
+  const [bookFileName, setBookFileName] = useState<string | null>(null);
   const [coverImage, setCoverImage] = useState<File | null>(null);
   const [coverImagePreview, setCoverImagePreview] = useState<string | null>(
     null
   );
+  const [loadingCoverPreview, setLoadingCoverPreview] = useState(false);
+  const [loadingBookFile, setLoadingBookFile] = useState(false);
   const [coverImages, setCoverImages] = useState<Record<number, string>>({});
   const [loadingCovers, setLoadingCovers] = useState<Record<number, boolean>>(
     {}
@@ -114,6 +117,10 @@ const AdminBooks: React.FC = () => {
     // Cleanup URLs on unmount
     return () => {
       Object.values(coverImages).forEach((url) => URL.revokeObjectURL(url));
+      // Cleanup cover preview if it's a blob URL
+      if (coverImagePreview && coverImagePreview.startsWith('blob:')) {
+        URL.revokeObjectURL(coverImagePreview);
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [books]);
@@ -139,6 +146,11 @@ const AdminBooks: React.FC = () => {
   }, [showModal]);
 
   const handleAddBook = () => {
+    // Cleanup previous cover preview blob URL if exists
+    if (coverImagePreview && coverImagePreview.startsWith('blob:')) {
+      URL.revokeObjectURL(coverImagePreview);
+    }
+    
     setEditingBook(null);
     setFormData({
       title: "",
@@ -151,12 +163,15 @@ const AdminBooks: React.FC = () => {
       description: "",
     });
     setBookFile(null);
+    setBookFileName(null);
     setCoverImage(null);
     setCoverImagePreview(null);
+    setLoadingCoverPreview(false);
+    setLoadingBookFile(false);
     setShowModal(true);
   };
 
-  const handleEditBook = (book: Book) => {
+  const handleEditBook = async (book: Book) => {
     setEditingBook(book);
     setFormData({
       title: book.title,
@@ -170,10 +185,36 @@ const AdminBooks: React.FC = () => {
     });
     setBookFile(null);
     setCoverImage(null);
-    // Set preview from URL if editing
-    if (book.cover_image) {
-      setCoverImagePreview(book.cover_image);
+    setCoverImagePreview(null);
+    setBookFileName(null);
+    
+    // Load cover image preview
+    setLoadingCoverPreview(true);
+    try {
+      const coverBlob = await bookApi.getBookCover(book.id);
+      const coverUrl = URL.createObjectURL(coverBlob);
+      setCoverImagePreview(coverUrl);
+    } catch (error) {
+      console.error("Failed to load cover image:", error);
+      setCoverImagePreview(null);
+    } finally {
+      setLoadingCoverPreview(false);
     }
+    
+    // Load PDF file info (we'll show the filename)
+    setLoadingBookFile(true);
+    try {
+      const pdfBlob = await bookApi.getBookFile(book.id);
+      // Extract filename from book or use a default name
+      const fileName = book.book_file || `${book.title}.pdf`;
+      setBookFileName(fileName);
+    } catch (error) {
+      console.error("Failed to load book file:", error);
+      setBookFileName(null);
+    } finally {
+      setLoadingBookFile(false);
+    }
+    
     setShowModal(true);
   };
 
@@ -196,11 +237,16 @@ const AdminBooks: React.FC = () => {
     if (file) {
       if (type === "book") {
         setBookFile(file);
+        setBookFileName(file.name);
       } else {
         setCoverImage(file);
         // Create preview URL
         const reader = new FileReader();
         reader.onloadend = () => {
+          // Clean up previous blob URL if editing
+          if (coverImagePreview && coverImagePreview.startsWith('blob:')) {
+            URL.revokeObjectURL(coverImagePreview);
+          }
           setCoverImagePreview(reader.result as string);
         };
         reader.readAsDataURL(file);
@@ -242,6 +288,10 @@ const AdminBooks: React.FC = () => {
           updateBook({ id: editingBook.id, data: updateData })
         ).unwrap();
         alert("تم تحديث الكتاب بنجاح");
+        // Cleanup cover preview blob URL if exists
+        if (coverImagePreview && coverImagePreview.startsWith('blob:')) {
+          URL.revokeObjectURL(coverImagePreview);
+        }
         setShowModal(false);
         dispatch(listBooks());
       } catch (err: unknown) {
@@ -491,7 +541,13 @@ const AdminBooks: React.FC = () => {
                   {editingBook ? "تعديل الكتاب" : "إضافة كتاب جديد"}
                 </h2>
                 <button
-                  onClick={() => setShowModal(false)}
+                  onClick={() => {
+                    // Cleanup cover preview blob URL if exists
+                    if (coverImagePreview && coverImagePreview.startsWith('blob:')) {
+                      URL.revokeObjectURL(coverImagePreview);
+                    }
+                    setShowModal(false);
+                  }}
                   className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
                 >
                   <X size={24} />
@@ -611,11 +667,31 @@ const AdminBooks: React.FC = () => {
                         htmlFor="book-file"
                         className="flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-primary transition-colors"
                       >
-                        <FileText size={20} className="text-gray-400" />
-                        <span className="font-tajawal text-sm text-gray-600">
-                          {bookFile ? bookFile.name : "اختر ملف PDF"}
-                        </span>
+                        {loadingBookFile ? (
+                          <>
+                            <Loader2 className="animate-spin text-primary" size={20} />
+                            <span className="font-tajawal text-sm text-gray-600">
+                              جاري التحميل...
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <FileText size={20} className="text-gray-400" />
+                            <span className="font-tajawal text-sm text-gray-600">
+                              {bookFile
+                                ? bookFile.name
+                                : bookFileName
+                                ? `الملف الحالي: ${bookFileName.split('/').pop() || bookFileName}`
+                                : "اختر ملف PDF"}
+                            </span>
+                          </>
+                        )}
                       </label>
+                      {editingBook && bookFileName && !bookFile && (
+                        <p className="mt-2 text-xs font-tajawal text-gray-500">
+                          اختر ملف جديد لتحديث الملف الحالي
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -637,17 +713,39 @@ const AdminBooks: React.FC = () => {
                         htmlFor="cover-image"
                         className="flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-primary transition-colors"
                       >
-                        <ImageIcon size={20} className="text-gray-400" />
-                        <span className="font-tajawal text-sm text-gray-600">
-                          {coverImage ? coverImage.name : "اختر صورة"}
-                        </span>
+                        {loadingCoverPreview ? (
+                          <>
+                            <Loader2 className="animate-spin text-primary" size={20} />
+                            <span className="font-tajawal text-sm text-gray-600">
+                              جاري تحميل الصورة...
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <ImageIcon size={20} className="text-gray-400" />
+                            <span className="font-tajawal text-sm text-gray-600">
+                              {coverImage
+                                ? coverImage.name
+                                : coverImagePreview
+                                ? "الصورة الحالية معروضة أدناه"
+                                : "اختر صورة"}
+                            </span>
+                          </>
+                        )}
                       </label>
                       {coverImagePreview && (
-                        <img
-                          src={coverImagePreview}
-                          alt="Cover preview"
-                          className="mt-2 w-full h-32 object-cover rounded-xl"
-                        />
+                        <div className="mt-2">
+                          <img
+                            src={coverImagePreview}
+                            alt="Cover preview"
+                            className="w-full h-32 object-cover rounded-xl"
+                          />
+                          {editingBook && !coverImage && (
+                            <p className="mt-2 text-xs font-tajawal text-gray-500">
+                              اختر صورة جديدة لتحديث الصورة الحالية
+                            </p>
+                          )}
+                        </div>
                       )}
                     </div>
                   </div>
@@ -657,7 +755,13 @@ const AdminBooks: React.FC = () => {
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={() => setShowModal(false)}
+                    onClick={() => {
+                      // Cleanup cover preview blob URL if exists
+                      if (coverImagePreview && coverImagePreview.startsWith('blob:')) {
+                        URL.revokeObjectURL(coverImagePreview);
+                      }
+                      setShowModal(false);
+                    }}
                     className="flex-1"
                     icon={<X size={16} />}
                   >
